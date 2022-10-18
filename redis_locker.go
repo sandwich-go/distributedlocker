@@ -1,10 +1,10 @@
 package distributedlocker
 
 import (
-	"bitbucket.org/funplus/sandwich/base/retry"
 	"context"
 	"fmt"
 	"github.com/rs/xid"
+	"github.com/sandwich-go/boost/retry"
 	"github.com/sandwich-go/redisson"
 )
 
