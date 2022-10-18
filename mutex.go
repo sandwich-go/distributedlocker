@@ -99,7 +99,7 @@ func Do(ctx context.Context, key string, fn func()) (err error) {
 		cancel()
 	}()
 	var identifier string
-	identifier, err = locker.tryLock(ctx, lockerModeCommon, key)
+	identifier, err = locker.tryLock(ctx, lockerModeWrite, key)
 	if err != nil {
 		return
 	}
@@ -109,7 +109,7 @@ func Do(ctx context.Context, key string, fn func()) (err error) {
 		if r := recover(); r != nil {
 			errLog.Print(fmt.Sprintf("distributed lock, execute fn occur panic, key: %s, recover:%v", key, r))
 		}
-		if err0 := locker.unLock(ctx, lockerModeCommon, key, identifier); err0 != nil {
+		if err0 := locker.unLock(ctx, lockerModeWrite, key, identifier); err0 != nil {
 			errLog.Print(fmt.Sprintf("distributed lock, unlock error, key: %s, err:%v", key, err0.Error()))
 		}
 		dogCancel()
@@ -133,8 +133,8 @@ func NewMutexWithLockerBuilder(key string, builder LockerBuilder) Mutex {
 	return &mutex{&baseMutex{key: key, locker: builder.Build()}}
 }
 
-func (r *mutex) Lock(ctx context.Context) error   { return r.lock(ctx, r.m) }
-func (r *mutex) UnLock(ctx context.Context) error { return r.unLock(ctx, r.m) }
+func (r *mutex) Lock(ctx context.Context) error   { return r.lock(ctx, lockerModeWrite) }
+func (r *mutex) UnLock(ctx context.Context) error { return r.unLock(ctx, lockerModeWrite) }
 
 type rwMutex struct {
 	*baseMutex

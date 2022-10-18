@@ -21,20 +21,6 @@ var (
 		acquire string
 		release string
 	}{
-		lockerModeCommon: {
-			acquire: `
-if redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2], 'NX') == false then
-	return 0
-end
-return 1
-`,
-			release: `
-if redis.call('GET', KEYS[1]) == ARGV[1] then
-	return redis.call('DEL', KEYS[1])
-end
-return 0
-`,
-		},
 		lockerModeRead: {
 			acquire: fmt.Sprintf(`
 if redis.call('HEXISTS', KEYS[1], '%s') == 1 then

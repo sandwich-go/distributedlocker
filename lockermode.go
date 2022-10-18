@@ -4,7 +4,6 @@ package distributedlocker
 type lockerMode int
 
 const (
-	lockerModeCommon lockerMode = 0
-	lockerModeRead   lockerMode = 1
-	lockerModeWrite  lockerMode = 2
+	lockerModeRead  lockerMode = 0
+	lockerModeWrite lockerMode = 1
 )
