@@ -106,8 +106,8 @@ func (r *redisLocker) renew(ctx context.Context, key string) error {
 }
 
 func (r *redisLocker) genLockerKey(key string) string {
-	if len(r.visitor.GetPrefix()) > 0 {
-		return fmt.Sprintf("%s:%s", r.visitor.GetPrefix(), key)
+	if p := r.visitor.GetPrefix(); len(p) > 0 {
+		return fmt.Sprintf("%s:%s", p, key)
 	}
 	return key
 }
