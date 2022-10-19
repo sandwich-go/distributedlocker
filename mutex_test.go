@@ -79,7 +79,7 @@ func Test_RWLock(t *testing.T) {
 	})
 }
 
-func Test_MutexDo(t *testing.T) {
+func Test_Do(t *testing.T) {
 	setupForTest()
 	errFun := func(err error) error {
 		if err != nil && err != ErrTryLockMaxNum {

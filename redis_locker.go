@@ -18,8 +18,7 @@ type Locker interface {
 var (
 	writeFieldName = "_w_"
 	scripts        = map[lockerMode]struct {
-		acquire string
-		release string
+		acquire, release string
 	}{
 		lockerModeRead: {
 			acquire: fmt.Sprintf(`
@@ -71,8 +70,7 @@ func NewRedisLockerBuilder(cmd redisson.Cmdable, opts ...Option) LockerBuilder {
 func (b *redisLockerBuilder) Build() Locker { return b.locker }
 
 type redisLockerScript struct {
-	acquire redisson.Scripter
-	release redisson.Scripter
+	acquire, release redisson.Scripter
 }
 
 type redisLocker struct {
