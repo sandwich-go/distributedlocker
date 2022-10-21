@@ -7,39 +7,59 @@ import (
 	"time"
 )
 
-var emptyCancelFunc = func() {}
-
 type baseMutex struct {
 	key    string
 	locker Locker
 
-	mx         sync.Mutex // protects following fields
+	mx         sync.RWMutex // protects following fields
 	m          lockerMode
 	cancel     context.CancelFunc
 	identifier string
+	until      time.Time
 }
 
-func wrapDeadlineContext(ctx context.Context, expiration time.Duration) (context.Context, context.CancelFunc) {
-	if _, ok := ctx.Deadline(); !ok {
-		return context.WithDeadline(ctx, time.Now().Add(expiration))
+func (r *baseMutex) Name() string                    { return r.key }
+func (r *baseMutex) Value() string                   { return r.identifier }
+func (r *baseMutex) Until() time.Time                { return r.until }
+func (r *baseMutex) Renew(ctx context.Context) error { return r.renew(ctx, r.m) }
+
+func (r *baseMutex) watchDog(ctx context.Context) {
+	if !r.locker.options().GetAutoRenew() {
+		return
 	}
-	return ctx, emptyCancelFunc
-}
+	go func() {
+		time.Sleep(r.until.Sub(time.Now()) >> 1)
 
-func watchDog(ctx context.Context, key string, locker Locker) {
-	time.Sleep(locker.options().GetExpiration() >> 1)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			//续期
-			if err := locker.renew(ctx, key); err != nil {
-				errLog.Print(fmt.Sprintf("distributed lock, watch dog renew failed, key: %s, err: %v", key, err.Error()))
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				//续期
+				if err := r.renew(ctx, r.m); err != nil {
+					errLog.Print(fmt.Sprintf("distributed lock, watch dog renew failed, key: %s, err: %v", r.key, err.Error()))
+				}
+				time.Sleep(r.until.Sub(time.Now()) >> 1)
 			}
-			time.Sleep(locker.options().GetExpiration() >> 1)
 		}
+	}()
+}
+
+func (r *baseMutex) renew(ctx context.Context, m lockerMode) error {
+	r.mx.Lock()
+	defer r.mx.Unlock()
+	if r.locker == nil {
+		return ErrMustInitLocker
 	}
+	if len(r.identifier) == 0 || r.m != m {
+		return ErrUnLockUnLocked
+	}
+	until, err := r.locker.renew(ctx, m, r.key, r.identifier)
+	if err != nil {
+		return err
+	}
+	r.until = until
+	return nil
 }
 
 func (r *baseMutex) lock(ctx context.Context, m lockerMode) error {
@@ -51,19 +71,17 @@ func (r *baseMutex) lock(ctx context.Context, m lockerMode) error {
 	if len(r.identifier) > 0 {
 		return ErrLockLocked
 	}
-	var cancel context.CancelFunc
-	ctx, cancel = wrapDeadlineContext(ctx, r.locker.options().GetExpiration())
-	defer cancel()
-	identifier, err := r.locker.tryLock(ctx, m, r.key)
+	identifier, until, err := r.locker.tryLock(ctx, m, r.key)
 	if err != nil {
 		return err
 	}
 	//A new context is required to manage the dog
 	dogCtx, dogCancel := context.WithCancel(context.Background())
 	r.cancel = dogCancel
-	go watchDog(dogCtx, r.key, r.locker)
 	r.identifier = identifier
+	r.until = until
 	r.m = m
+	r.watchDog(dogCtx)
 	return nil
 }
 
@@ -73,46 +91,29 @@ func (r *baseMutex) unLock(ctx context.Context, m lockerMode) error {
 	if r.locker == nil {
 		return ErrMustInitLocker
 	}
-	if len(r.identifier) == 0 {
+	if len(r.identifier) == 0 || r.m != m {
 		return ErrUnLockUnLocked
 	}
-	if r.m != m {
-		return ErrUnLockUnLocked
-	}
-	var cancel context.CancelFunc
-	ctx, cancel = wrapDeadlineContext(ctx, r.locker.options().GetExpiration())
-	defer cancel()
 	r.cancel()
 	err := r.locker.unLock(ctx, m, r.key, r.identifier)
 	r.identifier = ""
+	r.until = time.Now()
 	return err
 }
 
 func Do(ctx context.Context, key string, fn func()) (err error) {
-	if defaultLockerBuilder == nil {
-		panic(ErrMustInitDefaultLLockerBuilder)
-	}
-	locker := defaultLockerBuilder.Build()
-	var cancel context.CancelFunc
-	ctx, cancel = wrapDeadlineContext(ctx, locker.options().GetExpiration())
-	defer func() {
-		cancel()
-	}()
-	var identifier string
-	identifier, err = locker.tryLock(ctx, lockerModeWrite, key)
+	mx := NewMutex(key)
+	err = mx.Lock(ctx)
 	if err != nil {
 		return
 	}
-	dogCtx, dogCancel := context.WithCancel(context.Background())
-	go watchDog(dogCtx, key, locker)
 	defer func() {
 		if r := recover(); r != nil {
 			errLog.Print(fmt.Sprintf("distributed lock, execute fn occur panic, key: %s, recover:%v", key, r))
 		}
-		if err0 := locker.unLock(ctx, lockerModeWrite, key, identifier); err0 != nil {
+		if err0 := mx.UnLock(ctx); err0 != nil {
 			errLog.Print(fmt.Sprintf("distributed lock, unlock error, key: %s, err:%v", key, err0.Error()))
 		}
-		dogCancel()
 	}()
 	fn()
 	return
@@ -133,8 +134,8 @@ func NewMutexWithLockerBuilder(key string, builder LockerBuilder) Mutex {
 	return &mutex{&baseMutex{key: key, locker: builder.Build()}}
 }
 
-func (r *mutex) Lock(ctx context.Context) error   { return r.lock(ctx, lockerModeWrite) }
-func (r *mutex) UnLock(ctx context.Context) error { return r.unLock(ctx, lockerModeWrite) }
+func (r *mutex) Lock(ctx context.Context) error   { return r.lock(ctx, lockerModeBase) }
+func (r *mutex) UnLock(ctx context.Context) error { return r.unLock(ctx, lockerModeBase) }
 
 type rwMutex struct {
 	*baseMutex

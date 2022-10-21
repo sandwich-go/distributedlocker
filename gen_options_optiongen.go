@@ -7,10 +7,14 @@ import "time"
 
 // Options should use NewOptions to initialize it
 type Options struct {
-	RetryTimes    int
-	RetryInterval time.Duration
-	Expiration    time.Duration
-	Prefix        string
+	RetryTimes       int           `usage:"acquire lock重试次数"`
+	MinRetryInterval time.Duration `usage:"最小重试时间，不能小于50ms"`
+	MaxRetryInterval time.Duration `usage:"最大重试时间，不能大于250ms"`
+	DriftFactor      float64       `usage:"有效时间因子"`
+	TimeoutFactor    float64       `usage:"超时时间因子"`
+	Expiration       time.Duration `usage:"过期时间"`
+	Prefix           string        `usage:"key的前缀"`
+	AutoRenew        bool          `usage:"是否自动续期"`
 }
 
 // NewOptions new Options
@@ -35,31 +39,59 @@ func (cc *Options) ApplyOption(opts ...Option) {
 // Option option func
 type Option func(cc *Options)
 
-// WithRetryTimes  option func for filed RetryTimes
+// WithRetryTimes  acquire lock重试次数
 func WithRetryTimes(v int) Option {
 	return func(cc *Options) {
 		cc.RetryTimes = v
 	}
 }
 
-// WithRetryInterval option func for filed RetryInterval
-func WithRetryInterval(v time.Duration) Option {
+// WithMinRetryInterval 最小重试时间，不能小于50ms
+func WithMinRetryInterval(v time.Duration) Option {
 	return func(cc *Options) {
-		cc.RetryInterval = v
+		cc.MinRetryInterval = v
 	}
 }
 
-// WithExpiration option func for filed Expiration
+// WithMaxRetryInterval 最大重试时间，不能大于250ms
+func WithMaxRetryInterval(v time.Duration) Option {
+	return func(cc *Options) {
+		cc.MaxRetryInterval = v
+	}
+}
+
+// WithDriftFactor 有效时间因子
+func WithDriftFactor(v float64) Option {
+	return func(cc *Options) {
+		cc.DriftFactor = v
+	}
+}
+
+// WithTimeoutFactor 超时时间因子
+func WithTimeoutFactor(v float64) Option {
+	return func(cc *Options) {
+		cc.TimeoutFactor = v
+	}
+}
+
+// WithExpiration 过期时间
 func WithExpiration(v time.Duration) Option {
 	return func(cc *Options) {
 		cc.Expiration = v
 	}
 }
 
-// WithPrefix option func for filed Prefix
+// WithPrefix key的前缀
 func WithPrefix(v string) Option {
 	return func(cc *Options) {
 		cc.Prefix = v
+	}
+}
+
+// WithAutoRenew 是否自动续期
+func WithAutoRenew(v bool) Option {
+	return func(cc *Options) {
+		cc.AutoRenew = v
 	}
 }
 
@@ -74,10 +106,14 @@ func newDefaultOptions() *Options {
 	cc := &Options{}
 
 	for _, opt := range [...]Option{
-		WithRetryTimes(5),
-		WithRetryInterval(time.Duration(50) * time.Millisecond),
+		WithRetryTimes(32),
+		WithMinRetryInterval(minRetryInterval),
+		WithMaxRetryInterval(maxRetryInterval),
+		WithDriftFactor(0.01),
+		WithTimeoutFactor(0.05),
 		WithExpiration(minExpiration),
 		WithPrefix("__mx__"),
+		WithAutoRenew(true),
 	} {
 		opt(cc)
 	}
@@ -86,17 +122,25 @@ func newDefaultOptions() *Options {
 }
 
 // all getter func
-func (cc *Options) GetRetryTimes() int              { return cc.RetryTimes }
-func (cc *Options) GetRetryInterval() time.Duration { return cc.RetryInterval }
-func (cc *Options) GetExpiration() time.Duration    { return cc.Expiration }
-func (cc *Options) GetPrefix() string               { return cc.Prefix }
+func (cc *Options) GetRetryTimes() int                 { return cc.RetryTimes }
+func (cc *Options) GetMinRetryInterval() time.Duration { return cc.MinRetryInterval }
+func (cc *Options) GetMaxRetryInterval() time.Duration { return cc.MaxRetryInterval }
+func (cc *Options) GetDriftFactor() float64            { return cc.DriftFactor }
+func (cc *Options) GetTimeoutFactor() float64          { return cc.TimeoutFactor }
+func (cc *Options) GetExpiration() time.Duration       { return cc.Expiration }
+func (cc *Options) GetPrefix() string                  { return cc.Prefix }
+func (cc *Options) GetAutoRenew() bool                 { return cc.AutoRenew }
 
 // OptionsVisitor visitor interface for Options
 type OptionsVisitor interface {
 	GetRetryTimes() int
-	GetRetryInterval() time.Duration
+	GetMinRetryInterval() time.Duration
+	GetMaxRetryInterval() time.Duration
+	GetDriftFactor() float64
+	GetTimeoutFactor() float64
 	GetExpiration() time.Duration
 	GetPrefix() string
+	GetAutoRenew() bool
 }
 
 // OptionsInterface visitor + ApplyOption interface for Options

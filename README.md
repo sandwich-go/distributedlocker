@@ -11,11 +11,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/sandwich-go/distributedlocker"
+	"github.com/sandwich-go/distributedlocker/redis"
 	"github.com/sandwich-go/redisson"
 )
 
 func main() {
-	distributedlocker.MustNewDefaultLockerBuilder(redisson.MustNewClient(&redisson.Conf{Resp: redisson.RESP2, Addrs: []string{"127.0.0.1:6379"}}))
+	distributedlocker.MustNewDefaultLockerBuilder(redis.NewRedisson(&redisson.Conf{Resp: redisson.RESP2, Addrs: []string{"127.0.0.1:6379"}}))
 
 	ctx := context.Background()
 	key0 := "123"

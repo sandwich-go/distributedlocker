@@ -2,6 +2,7 @@ package distributedlocker
 
 import (
 	"context"
+	"github.com/sandwich-go/distributedlocker/redis"
 	"github.com/sandwich-go/redisson"
 	. "github.com/smartystreets/goconvey/convey"
 	"testing"
@@ -9,7 +10,7 @@ import (
 )
 
 func setupForTest() {
-	MustNewDefaultLockerBuilder(redisson.MustNewClient(&redisson.Conf{Resp: redisson.RESP2, Addrs: []string{"127.0.0.1:6379"}}))
+	MustNewDefaultLockerBuilder(redis.NewRedisson(&redisson.Conf{Resp: redisson.RESP2, Addrs: []string{"127.0.0.1:6379"}}))
 }
 
 func Test_Lock(t *testing.T) {
@@ -29,7 +30,7 @@ func Test_Lock(t *testing.T) {
 
 		mu3 := NewMutex(key)
 		err = mu3.Lock(ctx)
-		So(err, ShouldEqual, ErrTryLockMaxNum)
+		So(err, ShouldEqual, ErrAcquireLockFailed)
 
 		err = mu2.UnLock(ctx)
 		So(err, ShouldBeNil)
@@ -44,6 +45,7 @@ func Test_RWLock(t *testing.T) {
 		mu := NewRWMutex(key)
 		err := mu.Lock(ctx)
 		So(err, ShouldBeNil)
+		t.Log("until", mu.Until())
 		err = mu.UnLock(ctx)
 		So(err, ShouldBeNil)
 
@@ -57,7 +59,7 @@ func Test_RWLock(t *testing.T) {
 
 		mu4 := NewRWMutex(key)
 		err = mu4.Lock(ctx)
-		So(err, ShouldEqual, ErrTryLockMaxNum)
+		So(err, ShouldEqual, ErrAcquireLockFailed)
 
 		err = mu2.UnLock(ctx)
 		So(err, ShouldEqual, ErrUnLockUnLocked)
@@ -72,7 +74,7 @@ func Test_RWLock(t *testing.T) {
 		So(err, ShouldBeNil)
 
 		err = mu3.RLock(ctx)
-		So(err, ShouldEqual, ErrTryLockMaxNum)
+		So(err, ShouldEqual, ErrAcquireLockFailed)
 
 		err = mu4.UnLock(ctx)
 		So(err, ShouldBeNil)
@@ -82,7 +84,7 @@ func Test_RWLock(t *testing.T) {
 func Test_Do(t *testing.T) {
 	setupForTest()
 	errFun := func(err error) error {
-		if err != nil && err != ErrTryLockMaxNum {
+		if err != nil && err != ErrAcquireLockFailed {
 			return err
 		}
 		return nil

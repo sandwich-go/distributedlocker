@@ -8,13 +8,14 @@ func _() {
 	// An "invalid array index" compiler error signifies that the constant values have changed.
 	// Re-run the stringer command to generate them again.
 	var x [1]struct{}
-	_ = x[lockerModeRead-0]
-	_ = x[lockerModeWrite-1]
+	_ = x[lockerModeBase-0]
+	_ = x[lockerModeRead-1]
+	_ = x[lockerModeWrite-2]
 }
 
-const _lockerMode_name = "lockerModeReadlockerModeWrite"
+const _lockerMode_name = "lockerModeBaselockerModeReadlockerModeWrite"
 
-var _lockerMode_index = [...]uint8{0, 14, 29}
+var _lockerMode_index = [...]uint8{0, 14, 28, 43}
 
 func (i lockerMode) String() string {
 	if i < 0 || i >= lockerMode(len(_lockerMode_index)-1) {
