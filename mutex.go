@@ -28,6 +28,16 @@ func (r *baseMutex) watchDog(ctx context.Context) {
 		return
 	}
 	go func() {
+		var sleep = func() bool {
+			now := time.Now()
+			t := r.until.Sub(now)
+			if t > 0 {
+				time.Sleep(t >> 1)
+			} else {
+				errLog.Print(fmt.Sprintf("distributed lock, watch dog renew failed, key: %s, err: until: %s before now: %s", r.key, r.until.String(), now.String()))
+			}
+			return t > 0
+		}
 		time.Sleep(r.until.Sub(time.Now()) >> 1)
 
 		for {
@@ -39,7 +49,9 @@ func (r *baseMutex) watchDog(ctx context.Context) {
 				if err := r.renew(ctx, r.m); err != nil {
 					errLog.Print(fmt.Sprintf("distributed lock, watch dog renew failed, key: %s, err: %v", r.key, err.Error()))
 				}
-				time.Sleep(r.until.Sub(time.Now()) >> 1)
+				if !sleep() {
+					return
+				}
 			}
 		}
 	}()
