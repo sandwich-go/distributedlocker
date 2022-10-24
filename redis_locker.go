@@ -29,6 +29,9 @@ var (
 			// return:
 			//		ok: 1
 			// 		fail: 0
+			// 1. 存在写锁，则直接返回失败
+			// 2. 设置读锁，属性key为identifier，属性值为1
+			// 3. 设置锁过期时间为expiration
 			acquire: fmt.Sprintf(`
 if redis.call('HEXISTS', KEYS[1], '%s') == 1 then
 	return 0
@@ -44,6 +47,7 @@ return 1
 			// return:
 			//		ok: 1
 			// 		fail: 0
+			// 1. 删除读锁中属性key为identifier的属性
 			release: `
 return redis.call('HDEL', KEYS[1], ARGV[1])
 `,
@@ -54,6 +58,7 @@ return redis.call('HDEL', KEYS[1], ARGV[1])
 			// return:
 			//		ok: 1
 			// 		fail: 0
+			// 1. 设置锁过期时间为expiration
 			renew: `
 return redis.call('PEXPIRE', KEYS[1], ARGV[1])
 `,
@@ -66,6 +71,9 @@ return redis.call('PEXPIRE', KEYS[1], ARGV[1])
 			// return:
 			//		ok: 1
 			// 		fail: 0
+			// 1. 如果锁的属性数量多于1，则表示存在读锁，直接返回失败
+			// 2. 设置写锁，属性key为'writeFieldName'，属性值为identifier
+			// 3. 设置锁过期时间为expiration
 			acquire: fmt.Sprintf(`
 if redis.call('HLEN', KEYS[1]) > 1 then
 	return 0
@@ -83,6 +91,7 @@ return value
 			// return:
 			//		ok: 1
 			// 		fail: 0
+			// 1. 删除属性key为'writeFieldName'，属性值为identifier的属性
 			release: fmt.Sprintf(`
 if redis.call('HGET', KEYS[1], '%s') == ARGV[1] then
 	return redis.call('HDEL', KEYS[1], '%s')
@@ -96,6 +105,7 @@ return 0
 			// return:
 			//		ok: 1
 			// 		fail: 0
+			// 1. 设置锁过期时间为expiration
 			renew: `
 return redis.call('PEXPIRE', KEYS[1], ARGV[1])
 `,
