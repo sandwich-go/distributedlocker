@@ -9,5 +9,4 @@ type Scripter interface {
 
 type Cmdable interface {
 	CreateScript(src string) Scripter
-	IsNil(err error) bool
 }

@@ -22,7 +22,11 @@ type Redisson struct {
 }
 
 func NewRedisson(conf *redisson.Conf) Cmdable {
-	return &Redisson{redisson.MustNewClient(conf)}
+	return NewRedissonWithClient(redisson.MustNewClient(conf))
+}
+
+func NewRedissonWithClient(cmd redisson.Cmdable) Cmdable {
+	return &Redisson{Cmdable: cmd}
 }
 
 func (r *Redisson) IsNil(err error) bool { return redisson.IsNil(err) }
