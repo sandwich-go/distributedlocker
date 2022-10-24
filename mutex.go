@@ -146,8 +146,8 @@ func NewMutexWithLockerBuilder(key string, builder LockerBuilder) Mutex {
 	return &mutex{&baseMutex{key: key, locker: builder.Build()}}
 }
 
-func (r *mutex) Lock(ctx context.Context) error   { return r.lock(ctx, lockerModeBase) }
-func (r *mutex) UnLock(ctx context.Context) error { return r.unLock(ctx, lockerModeBase) }
+func (r *mutex) Lock(ctx context.Context) error   { return r.lock(ctx, lockerModeWrite) }
+func (r *mutex) UnLock(ctx context.Context) error { return r.unLock(ctx, lockerModeWrite) }
 
 type rwMutex struct {
 	*baseMutex

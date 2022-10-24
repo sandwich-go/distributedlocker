@@ -18,242 +18,86 @@ type Locker interface {
 }
 
 var (
-	scripts = map[lockerMode]struct {
+	writeFieldName = "_w_"
+	scripts        = map[lockerMode]struct {
 		acquire, release, renew string
 	}{
-		lockerModeBase: {
-			// 请求锁
-			// keys: genLockerKey(key)
-			// args: expiration, identifier
-			// return:
-			//	ok: nil
-			//	fail: ttl
-			acquire: `
-if (redis.call('EXISTS', KEYS[1]) == 0) then
-	redis.call('HINCRBY', KEYS[1], ARGV[2], 1);
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	return nil;
-end;
-if (redis.call('HEXISTS', KEYS[1], ARGV[2]) == 1) then
-	redis.call('HINCRBY', KEYS[1], ARGV[2], 1);
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	return nil;
-end;	
-return redis.call('PTTL', KEYS[1]);
-`,
-			// 释放锁
-			// keys: genLockerKey(key)
-			// args: expiration, identifier
-			// return:
-			//	ok: 0/1, 1 表示不再有任何人持有该锁
-			//	fail: nil
-			release: `
-if (redis.call('HEXISTS', KEYS[1], ARGV[2]) == 0) then
-	return nil;
-end;		
-local counter = redis.call('HINCRBY', KEYS[1], ARGV[2], -1);
-if (counter > 0) then
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	return 0;	
-else
-	redis.call('DEL', KEYS[1]);
-	return 1;
-end;	
-return nil;
-`,
-			// 续约
-			// keys: genLockerKey(key)
-			// args: expiration, identifier
-			// ok: 1
-			// fail: 0
-			renew: `
-if (redis.call('HEXISTS', KEYS[1], ARGV[2]) == 1) then
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	return 1;	
-end;
-return 0;	
-`,
-		},
-
 		lockerModeRead: {
 			// 请求读锁
-			// keys: genLockerKey(key), {genLockerKey(key)}:identifier:rwlock_timeout
-			// args: expiration, identifier, identifier:write
+			// keys: [locker key]
+			// argvs: [identifier, expiration]
 			// return:
-			//	ok: nil
-			//	fail: ttl
-			acquire: `
-local mode = redis.call('HGET', KEYS[1], 'mode');
-if (mode == false) then
-	local key = KEYS[2] .. ':' .. '1';
-	redis.call('HSET', KEYS[1], 'mode', 'read');
-	redis.call('HSET', KEYS[1], ARGV[2], 1);
-	redis.call('SET', key, 1);
-	redis.call('PEXPIRE', key, ARGV[1]);
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	return nil; 
-end;
-if (mode == 'read') or (mode == 'write' and redis.call('HEXISTS', KEYS[1], ARGV[3]) == 1) then
-	local ind = redis.call('HINCRBY', KEYS[1], ARGV[2], 1);
-	local key = KEYS[2] .. ':' .. ind;
-	redis.call('SET', key, 1);
-	redis.call('PEXPIRE', key, ARGV[1]);
-	local remainTime = redis.call('PTTL', KEYS[1]);
-	redis.call('PEXPIRE', KEYS[1], math.max(remainTime, ARGV[1]));
-	return nil; 
-end;	
-return redis.call('PTTL', KEYS[1]);
-`,
+			//		ok: 1
+			// 		fail: 0
+			acquire: fmt.Sprintf(`
+if redis.call('HEXISTS', KEYS[1], '%s') == 1 then
+	return 0
+end
+redis.call('HSET', KEYS[1], ARGV[1], 1)
+redis.call("PEXPIRE", KEYS[1], ARGV[2])
+return 1
+`, writeFieldName),
+
 			// 释放读锁
-			// keys: genLockerKey(key), {genLockerKey(key)}:identifier:rwlock_timeout, {genLockerKey(key)}
-			// args: expiration, identifier
+			// keys: [locker key]
+			// argvs: [identifier]
 			// return:
-			//	ok: 0/1, 1 表示不再有任何人持有该锁
-			//	fail: nil
+			//		ok: 1
+			// 		fail: 0
 			release: `
-local mode = redis.call('HGET', KEYS[1], 'mode');
-if (mode == false) then
-	return 1;
-end;	
-local lockExists = redis.call('HEXISTS', KEYS[1], ARGV[2]);
-if (lockExists == 0) then
-	return nil;
-end;
-local counter = redis.call('HINCRBY', KEYS[1], ARGV[2], -1);
-if (counter == 0) then
-	redis.call('HDEL', KEYS[1], ARGV[2]);
-end;	
-redis.call('DEL', KEYS[2] .. ':' .. (counter+1));
-if (redis.call('HLEN', KEYS[1]) > 1) then
-	local maxRemainTime = -3;
-	local keys = redis.call('HKEYS', KEYS[1]);
-	for n, key in ipairs(keys) do
-		counter = tonumber(redis.call('HGET', KEYS[1], key));
-		if type(counter) == 'number' then
-			for i=counter, 1, -1 do
-				local remainTime = redis.call('PTTL', KEYS[3] .. ':' .. key .. ':rwlock_timeout:' .. i);
-				maxRemainTime = math.max(remainTime, maxRemainTime);
-			end;	
-		end;	
-	end;	
-	if maxRemainTime > 0 then
-		redis.call('PEXPIRE', KEYS[1], maxRemainTime);
-		return 0;
-	end;	
-	if mode == 'write' then
-		return 0;
-	end;	
-end;	
-redis.call('DEL', KEYS[1]);
-return 1;
+return redis.call('HDEL', KEYS[1], ARGV[1])
 `,
-			// 续约
-			// keys: genLockerKey(key), {genLockerKey(key)}
-			// args: expiration, identifier
-			// ok: 1
-			// fail: 0
+
+			// 续约读锁
+			// keys: [locker key]
+			// argvs: [expiration]
+			// return:
+			//		ok: 1
+			// 		fail: 0
 			renew: `
-local counter = redis.call('HGET', KEYS[1], ARGV[2]);
-if (counter ~= false) then
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	if (redis.call('HLEN', KEYS[1]) > 1) then
-		local keys = redis.call('HKEYS', KEYS[1]);
-		for n, key in ipairs(keys) do
-			counter = tonumber(redis.call('HGET', KEYS[1], key));
-			if type(counter) == 'number' then
-				for i=counter, 1, -1 do
-					redis.call('PEXPIRE', KEYS[2] .. ':' .. key .. ':rwlock_timeout:' .. i, ARGV[1]);
-				end;	
-			end;	
-		end;	
-	end;	
-	return 1;
-end;	
-return 0;
+return redis.call('PEXPIRE', KEYS[1], ARGV[1])
 `,
 		},
 
 		lockerModeWrite: {
 			// 请求写锁
-			// keys: genLockerKey(key)
-			// args: expiration, identifier:write
+			// keys: [locker key]
+			// argvs: [identifier, expiration]
 			// return:
-			//	ok: nil
-			//	fail: ttl
-			acquire: `
-local mode = redis.call('HGET', KEYS[1], 'mode');
-if (mode == false) then
-	redis.call('HSET', KEYS[1], 'mode', 'write');
-    redis.call('HSET', KEYS[1], ARGV[2], 1);
-    redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-    return nil;
-end;
-if (mode == 'write') then
-	if (redis.call('HEXISTS', KEYS[1], ARGV[2]) == 1) then
-		redis.call('HINCRBY', KEYS[1], ARGV[2], 1);
-		local currentExpire = redis.call('PTTL', KEYS[1]);
-		redis.call('PEXPIRE', KEYS[1], currentExpire + ARGV[1]);
-		return nil;
-	end	
-end;	
-return redis.call('PTTL', KEYS[1]);
-`,
+			//		ok: 1
+			// 		fail: 0
+			acquire: fmt.Sprintf(`
+if redis.call('HLEN', KEYS[1]) > 1 then
+	return 0
+end
+local value = redis.call('HSETNX', KEYS[1], '%s', ARGV[1])
+if value > 0 then
+	redis.call("PEXPIRE", KEYS[1], ARGV[2])
+end
+return value
+`, writeFieldName),
+
 			// 释放写锁
-			// keys: genLockerKey(key)
-			// args: expiration, identifier:write
+			// keys: [locker key]
+			// argvs: [identifier]
 			// return:
-			//	ok: 0/1, 1 表示不再有任何人持有该锁
-			//	fail: nil
-			release: `
-local mode = redis.call('HGET', KEYS[1], 'mode');
-if (mode == false) then
-	return 1;
-end;
-if (mode == 'write') then
-	local lockExists = redis.call('HEXISTS', KEYS[1], ARGV[2]);
-	if (lockExists == 0) then
-		return nil;
-	else
-		local counter = redis.call('HINCRBY', KEYS[1], ARGV[2], -1); 
-		if (counter > 0) then
-			redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-			return 0;
-		else
-			redis.call('HDEL', KEYS[1], ARGV[2]);	
-			if (redis.call('HLEN', KEYS[1]) == 1) then
-				redis.call('DEL', KEYS[1]);
-			else
-				redis.call('HSET', KEYS[1], 'mode', 'read');
-			end;	
-			return 1;
-		end;	
-	end;	
-end;
-return nil;	
-`,
-			// 续约
-			// keys: genLockerKey(key), {genLockerKey(key)}
-			// args: expiration, identifier
-			// ok: 1
-			// fail: 0
+			//		ok: 1
+			// 		fail: 0
+			release: fmt.Sprintf(`
+if redis.call('HGET', KEYS[1], '%s') == ARGV[1] then
+	return redis.call('HDEL', KEYS[1], '%s')
+end
+return 0
+`, writeFieldName, writeFieldName),
+
+			// 续约读锁
+			// keys: [locker key]
+			// argvs: [expiration]
+			// return:
+			//		ok: 1
+			// 		fail: 0
 			renew: `
-local counter = redis.call('HGET', KEYS[1], ARGV[2]);
-if (counter ~= false) then
-	redis.call('PEXPIRE', KEYS[1], ARGV[1]);
-	if (redis.call('HLEN', KEYS[1]) > 1) then
-		local keys = redis.call('HKEYS', KEYS[1]);
-		for n, key in ipairs(keys) do
-			counter = tonumber(redis.call('HGET', KEYS[1], key));
-			if type(counter) == 'number' then
-				for i=counter, 1, -1 do
-					redis.call('PEXPIRE', KEYS[2] .. ':' .. key .. ':rwlock_timeout:' .. i, ARGV[1]);
-				end;	
-			end;	
-		end;	
-	end;	
-	return 1;
-end;	
-return 0;
+return redis.call('PEXPIRE', KEYS[1], ARGV[1])
 `,
 		},
 	}
@@ -375,20 +219,9 @@ func (r *redisLocker) tryLock(ctx context.Context, m lockerMode, key string) (id
 		return
 	}
 	identifier = xid.New().String()
-	expiration := r.visitor.GetExpiration().Milliseconds()
-	var keys = make([]string, 0, 2)
-	var args = make([]interface{}, 0, 3)
-	switch m {
-	case lockerModeBase:
-		keys = append(keys, r.genLockerKey(key))
-		args = append(args, expiration, identifier)
-	case lockerModeRead:
-		keys = append(keys, r.genLockerKey(key), r.genLockerTimeoutKey(key, identifier))
-		args = append(args, expiration, identifier, r.genWriteIdentifier(identifier))
-	case lockerModeWrite:
-		keys = append(keys, r.genLockerKey(key))
-		args = append(args, expiration, r.genWriteIdentifier(identifier))
-	}
+	var keys = []string{r.genLockerKey(key)}
+	var args = []interface{}{identifier, r.visitor.GetExpiration().Milliseconds()}
+
 	tries := r.visitor.GetRetryTimes()
 	for i := 0; i < tries; i++ {
 		if i != 0 {
@@ -403,17 +236,18 @@ func (r *redisLocker) tryLock(ctx context.Context, m lockerMode, key string) (id
 		}
 		start := time.Now()
 		ctx0, cancel := context.WithTimeout(ctx, time.Duration(int64(float64(r.visitor.GetExpiration())*r.visitor.GetTimeoutFactor())))
-		ttl, err0 := script.acquire.Run(ctx0, keys, args...)
+		status, err0 := script.acquire.Run(ctx0, keys, args...)
 		cancel()
-		if ttl == nil && err0 != nil && r.cmd.IsNil(err0) {
-			var ok bool
-			if until, ok = r.calUntil(start); ok {
-				return
+		if err0 != nil || status.(int64) == 0 {
+			if i == tries-1 && err0 != nil {
+				errLog.Print(fmt.Sprintf("distributed lock, try lock error, %s", err0.Error()))
 			}
+			continue
 		}
-		ctx0, cancel = context.WithTimeout(ctx, time.Duration(int64(float64(r.visitor.GetExpiration())*r.visitor.GetTimeoutFactor())))
-		_ = r.unLock(ctx0, m, key, identifier)
-		cancel()
+		var ok bool
+		if until, ok = r.calUntil(start); ok {
+			return
+		}
 	}
 	err = ErrAcquireLockFailed
 	return
@@ -424,54 +258,36 @@ func (r *redisLocker) unLock(ctx context.Context, m lockerMode, key string, iden
 	if err != nil {
 		return err
 	}
-	expiration := r.visitor.GetExpiration().Milliseconds()
-	var keys = make([]string, 0, 3)
-	var args = make([]interface{}, 0, 2)
-	switch m {
-	case lockerModeBase:
-		keys = append(keys, r.genLockerKey(key))
-		args = append(args, expiration, identifier)
-	case lockerModeRead:
-		timeoutKey := r.genLockerTimeoutKey(key, identifier)
-		keys = append(keys, r.genLockerKey(key), timeoutKey, r.genLockerKeyPrefix(identifier, timeoutKey))
-		args = append(args, expiration, identifier)
-	case lockerModeWrite:
-		keys = append(keys, r.genLockerKey(key))
-		args = append(args, expiration, r.genWriteIdentifier(identifier))
-	}
+	var keys = []string{r.genLockerKey(key)}
+	var args = []interface{}{identifier}
 	_, err = script.release.Run(ctx, keys, args)
 	if err != nil {
+		errLog.Print(fmt.Sprintf("distributed lock, unlock error, %s", err.Error()))
 		return ErrUnLockFailed
 	}
 	return nil
 }
 
-func (r *redisLocker) renew(ctx context.Context, m lockerMode, key, identifier string) (until time.Time, err error) {
+func (r *redisLocker) renew(ctx context.Context, m lockerMode, key, _ string) (until time.Time, err error) {
 	var script *redisLockerScript
 	script, err = r.getScript(m)
 	if err != nil {
 		return
 	}
-	expiration := r.visitor.GetExpiration().Milliseconds()
-	var keys = make([]string, 0, 2)
-	var args = make([]interface{}, 0, 2)
-	switch m {
-	case lockerModeBase:
-		keys = append(keys, r.genLockerKey(key))
-		args = append(args, expiration, identifier)
-	case lockerModeRead, lockerModeWrite:
-		timeoutKey := r.genLockerTimeoutKey(key, identifier)
-		keys = append(keys, r.genLockerKey(key), timeoutKey, r.genLockerKeyPrefix(identifier, timeoutKey))
-		args = append(args, expiration, identifier)
-	}
+	var keys = []string{r.genLockerKey(key)}
+	var args = []interface{}{r.visitor.GetExpiration().Milliseconds()}
 	start := time.Now()
 	var status interface{}
 	status, err = script.renew.Run(ctx, keys, args)
 	if err != nil {
 		return
 	}
+	if status.(int64) == 0 {
+		err = ErrRenewFailed
+		return
+	}
 	var ok bool
-	if until, ok = r.calUntil(start); !ok || status == 0 {
+	if until, ok = r.calUntil(start); !ok {
 		err = ErrRenewFailed
 		return
 	}
