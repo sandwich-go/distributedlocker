@@ -5,13 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sandwich-go/distributedlocker/redis"
 	"github.com/sandwich-go/redisson"
 	. "github.com/smartystreets/goconvey/convey"
 )
 
 func setupForTest() {
-	MustNewDefaultLockerBuilder(redis.NewRedisson(&redisson.Conf{Addrs: []string{"127.0.0.1:6379"}}))
+	MustNewDefaultLockerBuilder(redisson.MustNewClient(redisson.NewConf(redisson.WithAddrs("127.0.0.1:6379"))))
 }
 
 func Test_Lock(t *testing.T) {

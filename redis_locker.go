@@ -3,11 +3,12 @@ package distributedlocker
 import (
 	"context"
 	"fmt"
-	"github.com/rs/xid"
-	"github.com/sandwich-go/distributedlocker/redis"
 	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/rs/xid"
+	"github.com/sandwich-go/redisson"
 )
 
 type Locker interface {
@@ -117,12 +118,12 @@ type redisLockerBuilder struct {
 	locker *redisLocker
 }
 
-func MustNewDefaultLockerBuilder(cmd redis.Cmdable, opts ...Option) LockerBuilder {
+func MustNewDefaultLockerBuilder(cmd redisson.Cmdable, opts ...Option) LockerBuilder {
 	defaultLockerBuilder = NewRedisLockerBuilder(cmd, opts...)
 	return defaultLockerBuilder
 }
 
-func NewRedisLockerBuilder(cmd redis.Cmdable, opts ...Option) LockerBuilder {
+func NewRedisLockerBuilder(cmd redisson.Cmdable, opts ...Option) LockerBuilder {
 	return &redisLockerBuilder{locker: newRedisLocker(cmd, opts...)}
 }
 
@@ -133,24 +134,24 @@ type redisLockerScript struct {
 }
 
 type redisScript struct {
-	redis.Scripter
+	redisson.Scripter
 }
 
 func (r *redisScript) Run(ctx context.Context, keys []string, args ...interface{}) (interface{}, error) {
-	res, err := r.Scripter.EvalSha(ctx, keys, args...)
+	res, err := r.Scripter.EvalSha(ctx, keys, args...).Result()
 	if err != nil && strings.HasPrefix(err.Error(), "NOSCRIPT ") {
-		res, err = r.Scripter.Eval(ctx, keys, args...)
+		res, err = r.Scripter.Eval(ctx, keys, args...).Result()
 	}
 	return res, err
 }
 
 type redisLocker struct {
 	visitor OptionsInterface
-	cmd     redis.Cmdable
+	cmd     redisson.Cmdable
 	scripts map[lockerMode]*redisLockerScript
 }
 
-func newRedisLocker(cmd redis.Cmdable, opts ...Option) *redisLocker {
+func newRedisLocker(cmd redisson.Cmdable, opts ...Option) *redisLocker {
 	visitor := NewOptions(opts...)
 	if visitor.GetExpiration() < minExpiration {
 		errLog.Print(fmt.Sprintf("distributed lock, expiration can not less than %s!!", minExpiration.String()))
